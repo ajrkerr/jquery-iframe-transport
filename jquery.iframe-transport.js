@@ -85,7 +85,9 @@
     // and should revert all changes made to the page to enable the
     // submission via this transport.
     function cleanUp() {
-      $(addedFields).remove();
+      $(addedFields).each(function() {
+        this.remove();
+      });
       $(disabledFields).each(function() {
         this.disabled = false;
       });
