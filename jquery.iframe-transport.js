@@ -159,6 +159,15 @@
       addedFields.push($("<input type='hidden' name='X-Requested-With'>")
         .attr("value", "IFrame").appendTo(form));
 
+      // Borrowed straight from the JQuery source
+      // Provides a way of specifying the accepted data type similar to HTTP_ACCEPTS
+      accepts = options.dataTypes[ 0 ] && options.accepts[ options.dataTypes[0] ] ?
+        options.accepts[ options.dataTypes[0] ] + ( options.dataTypes[ 0 ] !== "*" ? ", */*; q=0.01" : "" ) :
+        options.accepts[ "*" ]
+
+      addedFields.push($("<input type='hidden' name='X-Http-Accept'>")
+        .attr("value", accepts).appendTo(form));
+
       return {
 
         // The `send` function is called by jQuery when the request should be
