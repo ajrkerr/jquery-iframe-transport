@@ -10,13 +10,16 @@
 
 // ## Usage
 
-// To use this plugin, you simply add a `files` option to an `$.ajax()` call,
-// where the value of that option is a jQuery object or a list of DOM elements
-// containing one or more `<input type="file">` elements:
+// To use this plugin, you simply add a `iframe` option with the value `true`
+// to the Ajax settings an `$.ajax()` call, and specify the file fields to
+// include in the submssion using the `files` option, which can be a selector,
+// jQuery object, or a list of DOM elements containing one or more
+// `<input type="file">` elements:
 
 //     $("#myform").submit(function() {
 //         $.ajax(this.action, {
-//             files: $(":file", this)
+//             files: $(":file", this),
+//             iframe: true
 //         }).complete(function(data) {
 //             console.log(data);
 //         });
@@ -33,6 +36,7 @@
 //         $.ajax(this.action, {
 //             data: $(":text", this).serializeArray(),
 //             files: $(":file", this),
+//             iframe: true,
 //             processData: false
 //         }).complete(function(data) {
 //             console.log(data);
@@ -68,10 +72,18 @@
 
 (function($, undefined) {
 
+  // Register a prefilter that checks whether the `iframe` option is set, and
+  // switches to the iframe transport if it is `true`.
+  $.ajaxPrefilter(function(options, origOptions, jqXHR) {
+    if (options.iframe) {
+      return "iframe";
+    }
+  });
+
   // Register an iframe transport, independent of requested data type. It will
   // only activate when the "files" option has been set to a non-empty list of
   // enabled file inputs.
-  $.ajaxTransport("+*", function(options, origOptions, jqXHR) {
+  $.ajaxTransport("iframe", function(options, origOptions, jqXHR) {
     var form = null,
         iframe = null,
         origAction = null,
@@ -85,7 +97,9 @@
     // and should revert all changes made to the page to enable the
     // submission via this transport.
     function cleanUp() {
-      $(addedFields).remove();
+      $(addedFields).each(function() {
+        this.remove();
+      });
       $(disabledFields).each(function() {
         this.disabled = false;
       });
@@ -95,6 +109,11 @@
       iframe.attr("src", "javascript:false;").remove();
     }
 
+    // Remove "iframe" from the data types list so that further processing is
+    // based on the content type returned by the server, without attempting an
+    // (unsupported) conversion from "iframe" to the actual type.
+    options.dataTypes.shift();
+    
     if (files.length) {
       // Determine the form the file fields belong to, and make sure they all
       // actually belong to the same form.
@@ -142,6 +161,15 @@
       addedFields.push($("<input type='hidden' name='X-Requested-With'>")
         .attr("value", "IFrame").appendTo(form));
 
+      // Borrowed straight from the JQuery source
+      // Provides a way of specifying the accepted data type similar to HTTP_ACCEPTS
+      accepts = options.dataTypes[ 0 ] && options.accepts[ options.dataTypes[0] ] ?
+        options.accepts[ options.dataTypes[0] ] + ( options.dataTypes[ 0 ] !== "*" ? ", */*; q=0.01" : "" ) :
+        options.accepts[ "*" ]
+
+      addedFields.push($("<input type='hidden' name='X-Http-Accept'>")
+        .attr("value", accepts).appendTo(form));
+
       return {
 
         // The `send` function is called by jQuery when the request should be
@@ -149,7 +177,7 @@
         send: function(headers, completeCallback) {
           iframe = $("<iframe src='javascript:false;' name='iframe-" + $.now()
             + "' style='display:none'></iframe>");
-
+          
           // The first load event gets fired after the iframe has been injected
           // into the DOM, and is used to prepare the actual submission.
           iframe.bind("load", function() {
@@ -159,24 +187,23 @@
             // actual payload is embedded in a `<textarea>` element, and
             // prepares the required conversions to be made in that case.
             iframe.unbind("load").bind("load", function() {
+              
               var doc = this.contentWindow ? this.contentWindow.document :
                 (this.contentDocument ? this.contentDocument : this.document),
                 root = doc.documentElement ? doc.documentElement : doc.body,
                 textarea = root.getElementsByTagName("textarea")[0],
-                dataType = textarea ? textarea.getAttribute("data-type") : null,
-                headers = {},
-                contents = {};
-              if (dataType) {
-                headers = "Content-Type: " + dataType;
-                contents.text = textarea.value;
-              } else {
-                headers = "Content-Type: text/html";
-                contents.text = root ? root.innerHTML : null;
-              }
-              completeCallback(200, "OK", contents, headers);
+                type = textarea ? textarea.getAttribute("data-type") : null;
+
+              var status = 200,
+                statusText = "OK",
+                responses = { text: type ? textarea.value : root ? root.innerHTML : null },
+                headers = "Content-Type: " + (type || "text/html")
+
+              completeCallback(status, statusText, responses, headers);
+
               setTimeout(cleanUp, 50);
             });
-
+            
             // Now that the load handler has been set up, reconfigure and
             // submit the form.
             form.attr("action", options.url)
